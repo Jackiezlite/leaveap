@@ -76,7 +76,8 @@ def logout():
 def dashboard():
     u = current_user()
     leaves = backend.get_user_leaves(u["id"])
-    return render_template("dashboard.html", user=u, leaves=leaves)
+    leave_types = backend.get_leave_types()
+    return render_template("dashboard.html", user=u, leaves=leaves, leave_types=leave_types)
 
 @app.route("/submit_leave", methods=["POST"])
 @login_required

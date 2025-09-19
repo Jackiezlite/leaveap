@@ -1,53 +1,158 @@
 {% extends "base.html" %}
 {% block content %}
-<h2>Welcome, {{ user['username'] }}</h2>
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h2 class="mb-0">Welcome, {{ user['username'] }}</h2>
+    <small class="text-muted">Managing your leaves made simple</small>
+  </div>
+  <div class="text-end">
+    <a class="btn btn-outline-secondary" href="{{ url_for('logout') }}">
+      <i class="fas fa-sign-out-alt"></i> Logout
+    </a>
+  </div>
+</div>
 <div class="row">
   <div class="col-md-6">
-    <h4>Apply for Leave</h4>
-    <form method="POST" action="{{ url_for('submit_leave') }}" enctype="multipart/form-data">
-      <div class="mb-2"><input class="form-control" name="type" placeholder="Leave Type" required></div>
-      
-      <!-- Simple Mode -->
-      <div id="simple-mode">
-        <div class="mb-2"><input class="form-control" name="date" type="text" placeholder="Date (DD-MM-YYYY)" required></div>
-        <div class="mb-2"><input class="form-control" name="days" type="number" max="1" value="1" readonly></div>
+    <div class="card">
+      <div class="card-header">
+        <h4 class="card-title mb-0">Apply for Leave</h4>
       </div>
-
-      <!-- Advanced Mode -->
-      <div id="advanced-mode" style="display:none;">
-        <div class="mb-2">
-          <textarea class="form-control" name="dates" placeholder="Enter dates separated by semicolon (DD-MM-YYYY;DD-MM-YYYY)" rows="3"></textarea>
-          <small class="text-muted">Example: 1-8-2024;2-8-2024</small>
+      <div class="card-body">
+        <form method="POST" action="{{ url_for('submit_leave') }}" enctype="multipart/form-data" id="leaveForm">
+                <div class="mb-3">
+        <label class="form-label">Leave Type 请假类型</label>
+        <select class="form-select" name="type" id="leaveType" required>
+          <option value="">Select Leave Type 选择请假类型</option>
+          <option value="Annual Leave">Annual Leave 年假</option>
+          <option value="Emergency Leave">Emergency Leave 紧急假</option>
+          <option value="Sick Leave">Sick Leave 病假</option>
+          <option value="Compassionate Leave">Compassionate Leave 慰问假</option>
+          <option value="Cultivation Leave">Cultivation Leave 修行假</option>
+          <option value="Working on Off/PH">Working on Off/PH 加班/节假日工作</option>
+          <option value="Hospital Leave">Hospital Leave 医院假</option>
+          <option value="Maternity Leave">Maternity Leave 产假</option>
+        </select>
+      </div>
+          
+          <div class="mb-3">
+            <div class="d-flex justify-content-between align-items-center">
+              <label class="form-label">Date Selection</label>
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" id="modeSwitch">
+                <label class="form-check-label" for="modeSwitch">Advanced Mode</label>
+              </div>
+            </div>
+            
+      <!-- Date Selection -->
+      <div class="mb-3">
+        <label class="form-label">Leave Dates 请假日期</label>
+        <div class="d-flex gap-2">
+          <div class="flex-grow-1">
+            <input type="text" class="form-control" id="selectedDates" readonly 
+                   placeholder="Click 'Select Dates' to choose leave dates">
+            <input type="hidden" name="dates" id="datesInput">
+            <input type="hidden" name="days" id="daysInput" value="1">
+          </div>
+          <button type="button" class="btn btn-primary" id="openCalendar">
+            <i class="fas fa-calendar"></i> Select Dates
+          </button>
         </div>
-        <div id="selected-dates" class="mb-2"></div>
+        <div id="selectedDatesList" class="mt-2 small"></div>
       </div>
 
-      <div class="mb-2">
-        <button type="button" class="btn btn-info btn-sm" id="toggle-mode">Switch to Advanced Mode</button>
-      </div>
+      <!-- Calendar Modal -->
+      <div class="modal fade" id="calendarModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">Select Leave Dates</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <div class="row">
+                <div class="col-md-8">
+                  <div id="calendar"></div>
+                </div>
+                <div class="col-md-4">
+                  <h6>Selected Dates:</h6>
+                  <div id="modalSelectedDates" class="list-group"></div>
+                </div>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+              <button type="button" class="btn btn-primary" id="confirmDates">Confirm Dates</button>
+            </div>
+          </div>
+        </div>
+      </div>            <input type="hidden" name="days" value="1">
+          </div>
 
-      <div class="mb-2"><input class="form-control" name="notes" placeholder="Notes"></div>
-      <div class="mb-2">
-        <input class="form-control" type="file" name="attachment" accept=".pdf,.png,.jpg,.jpeg,.gif">
-        <small class="text-muted">Accepted formats: PDF, PNG, JPG, GIF</small>
+          <div class="mb-3">
+            <label for="notes" class="form-label">Notes (Optional)</label>
+            <textarea class="form-control" name="notes" id="notes" rows="2" placeholder="Add any additional information"></textarea>
+          </div>
+
+          <div class="mb-3">
+            <label for="attachment" class="form-label">Attachment (Optional)</label>
+            <input class="form-control" type="file" name="attachment" id="attachment" accept=".pdf,.png,.jpg,.jpeg,.gif">
+            <small class="text-muted">Accepted formats: PDF, PNG, JPG, GIF</small>
+          </div>
+
+          <div class="d-grid">
+            <button class="btn btn-primary" type="submit">
+              <i class="fas fa-paper-plane"></i> Submit Leave Request
+            </button>
+          </div>
+        </form>
       </div>
-      <button class="btn btn-success" type="submit">Submit</button>
+    </div>
     </form>
   </div>
   <div class="col-md-6">
     <h4>Your Leaves</h4>
-    <table id="leavetable" class="display table table-striped" style="width:100%">
-      <thead><tr><th>ID</th><th>Type</th><th>Date</th><th>Days</th><th>Status</th><th>Notes</th><th>Attachment</th></tr></thead>
+    <table id="leavetable" class="display table table-sm hover" style="width:100%">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Type</th>
+          <th>Date</th>
+          <th>Days</th>
+          <th>Status</th>
+          <th>Notes</th>
+          <th>Attachment</th>
+        </tr>
+      </thead>
       <tbody>
         {% for l in leaves %}
-          <tr>
+          <tr class="{{ 'table-warning' if l['status'] == 'Pending' else 'table-danger' if l['status'] == 'Rejected' else 'table-success' if l['status'] == 'Approved' else '' }}">
             <td>{{ l['id'] }}</td>
             <td>{{ l['leave_type'] }}</td>
             <td>{{ l['start_date'] }}</td>
             <td>{{ l['num_days'] }}</td>
-            <td>{{ l['status'] }}</td>
-            <td>{{ l['notes'] }}</td>
-            <td>{% if l['attachment_path'] or l['attachment_blob'] %}{% set ap = l['attachment_path'] or '' %}{% set ext = (ap.split('.')[-1] if ap else '')|lower %}{% if ext in ['png','jpg','jpeg','gif'] %}<a href="{{ url_for('attachment_preview', leave_id=l['id']) }}" target="_blank"><img src="{{ url_for('attachment_preview', leave_id=l['id']) }}?thumb=1" style="width:80px;border-radius:4px"/></a>{% else %}<a href="{{ url_for('attachment_preview', leave_id=l['id']) }}" target="_blank">View</a>{% endif %}{% else %}-{% endif %}</td>
+            <td>
+              <span class="badge {{ 'bg-warning text-dark' if l['status'] == 'Pending' else 'bg-danger' if l['status'] == 'Rejected' else 'bg-success' }}">
+                {{ l['status'] }}
+              </span>
+            </td>
+            <td>{{ l['notes'] or '-' }}</td>
+            <td class="text-center">
+              {% if l['attachment_path'] or l['attachment_blob'] %}
+                {% set ap = l['attachment_path'] or '' %}
+                {% set ext = (ap.split('.')[-1] if ap else '')|lower %}
+                {% if ext in ['png','jpg','jpeg','gif'] %}
+                  <a href="{{ url_for('attachment_preview', leave_id=l['id']) }}" target="_blank" class="attachment-preview">
+                    <img src="{{ url_for('attachment_preview', leave_id=l['id']) }}?thumb=1" class="attachment-thumb" />
+                  </a>
+                {% else %}
+                  <a href="{{ url_for('attachment_preview', leave_id=l['id']) }}" target="_blank" class="btn btn-sm btn-outline-primary">
+                    <i class="fas fa-file"></i> View
+                  </a>
+                {% endif %}
+              {% else %}
+                -
+              {% endif %}
+            </td>
           </tr>
         {% endfor %}
       </tbody>
@@ -56,31 +161,165 @@
 </div>
 <script>
 $(document).ready(function(){
-    $('#leavetable').DataTable();
+    // Initialize DataTable
+    $('#leavetable').DataTable({
+        order: [[0, 'desc']], // Sort by ID descending by default
+        pageLength: 10,
+        responsive: true,
+        columns: [
+            null, // ID
+            null, // Type
+            null, // Date
+            null, // Days
+            null, // Status
+            null, // Notes 
+            { orderable: false } // Attachment - disable sorting
+        ]
+    });
     
-    let isAdvancedMode = false;
-    
-    $('#toggle-mode').click(function() {
-        isAdvancedMode = !isAdvancedMode;
-        if(isAdvancedMode) {
-            $('#simple-mode').hide();
-            $('#advanced-mode').show();
-            $(this).text('Switch to Simple Mode');
-        } else {
-            $('#simple-mode').show();
-            $('#advanced-mode').hide();
-            $(this).text('Switch to Advanced Mode');
+    // Initialize date pickers
+    const commonConfig = {
+        dateFormat: "d-m-Y",
+        minDate: "today",
+        disable: [
+            function(date) {
+                // Disable weekends
+                return (date.getDay() === 0 || date.getDay() === 6);
+            }
+        ]
+    };
+
+    // Simple mode date picker
+    const simplePicker = flatpickr('input[name="date"]', {
+        ...commonConfig,
+        onChange: function(selectedDates) {
+            $('input[name="days"]').val(1);
         }
     });
 
-    $('textarea[name="dates"]').on('input', function() {
-        const dates = $(this).val().split(';').filter(date => date.trim());
-        $('#selected-dates').html(
-            '<strong>Selected Dates (' + dates.length + '):</strong><br>' +
-            dates.map(date => date.trim()).join('<br>')
-        );
-        $('input[name="days"]').val(dates.length || 1);
+    // Advanced mode date picker
+    const advancedPicker = flatpickr("#advanced-date-picker", {
+        ...commonConfig,
+        mode: "multiple",
+        onChange: function(selectedDates) {
+            const dates = selectedDates.map(date => flatpickr.formatDate(date, "d-m-Y"));
+            $('#selected-dates').html(
+                `<div class="alert alert-info mb-0">
+                    <i class="fas fa-calendar-check"></i> 
+                    <strong>${dates.length} date${dates.length !== 1 ? 's' : ''} selected</strong>
+                    <hr class="my-2">
+                    ${dates.map(d => `<div><i class="fas fa-calendar-day"></i> ${d}</div>`).join('')}
+                </div>`
+            );
+            $('input[name="days"]').val(dates.length || 1);
+            $('input[name="dates"]').val(dates.join(';'));
+        }
+    });
+
+    // Mode switching
+    $('#modeSwitch').change(function() {
+        const isAdvanced = $(this).prop('checked');
+        $('#simple-mode').toggle(!isAdvanced);
+        $('#advanced-mode').toggle(isAdvanced);
+        
+        // Reset the other picker
+        if (isAdvanced) {
+            simplePicker.clear();
+        } else {
+            advancedPicker.clear();
+            $('#selected-dates').empty();
+        }
+        
+        $('input[name="days"]').val(1);
+    });
+
+    // Form validation
+    $('#leaveForm').on('submit', function(e) {
+        const leaveType = $('#leaveType').val();
+        if (!leaveType) {
+            e.preventDefault();
+            alert('Please select a leave type');
+            return false;
+        }
+        
+        const isAdvanced = $('#modeSwitch').prop('checked');
+        if (isAdvanced && !$('input[name="dates"]').val()) {
+            e.preventDefault();
+            alert('Please select at least one date');
+            return false;
+        }
+        
+        return true;
     });
 });
 </script>
+
+<style>
+/* Card styles */
+.card {
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+    border: none;
+    margin-bottom: 1rem;
+}
+
+.card-header {
+    background-color: #f8f9fa;
+    border-bottom: 1px solid rgba(0,0,0,.125);
+}
+
+/* Table styles */
+.table {
+    margin-bottom: 0;
+}
+
+.attachment-thumb {
+    width: 60px;
+    height: 60px;
+    object-fit: cover;
+    border-radius: 4px;
+    transition: transform 0.2s;
+}
+
+.attachment-preview:hover .attachment-thumb {
+    transform: scale(1.1);
+}
+
+/* Form styles */
+.form-control:focus {
+    border-color: #80bdff;
+    box-shadow: 0 0 0 0.2rem rgba(0,123,255,.25);
+}
+
+.badge {
+    font-weight: 500;
+    padding: 0.5em 0.75em;
+}
+
+/* Switch toggle */
+.form-switch {
+    padding-left: 2.5em;
+}
+
+.form-switch .form-check-input {
+    width: 2em;
+}
+
+/* Date picker customization */
+.flatpickr-calendar {
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+    border: none;
+}
+
+.flatpickr-day.selected {
+    background: #0d6efd;
+    border-color: #0d6efd;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .col-md-6 {
+        margin-bottom: 1rem;
+    }
+}
+</style>
 {% endblock %}

@@ -20,6 +20,16 @@ def init_db():
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute("PRAGMA foreign_keys = ON;")
         c = conn.cursor()
+        # Create Holidays table
+        c.execute("""CREATE TABLE IF NOT EXISTS Holidays (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL,
+            name TEXT NOT NULL,
+            is_default INTEGER DEFAULT 0,
+            year TEXT,
+            UNIQUE(date, year)
+        );""")
+        
         c.execute("""CREATE TABLE IF NOT EXISTS Users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE NOT NULL,
@@ -98,6 +108,20 @@ def hash_password(pw: str) -> str:
 def get_holidays() -> Dict[str, Dict[str, str]]:
     """Get all holidays from the JSON file"""
     try:
+        with open(HOLIDAYS_JSON, 'r') as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        # Return empty structure if file doesn't exist or is invalid
+        return {"defaults": {}, str(datetime.now().year): {}}
+
+def get_default_holidays() -> Dict[str, str]:
+    """Get the default holidays that repeat every year"""
+    try:
+        with open(HOLIDAYS_JSON, 'r') as f:
+            data = json.load(f)
+            return data.get('defaults', {})
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
         with open(HOLIDAYS_JSON, 'r') as f:
             return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
@@ -514,7 +538,13 @@ UI_TO_DB = {
     "hospital leave": "Hospital Leave",
     "maternity leave": "Maternity Leave",
     "cultivation leave": "Cultivation Leave",
+    "maternity leave": "PregnantLeave", # Assuming PregnantLeave is the DB column for Maternity Leave
 }
+
+def get_leave_types() -> List[str]:
+    """Returns a list of normalized leave types for UI display."""
+    # Exclude "working on off/ph/ot" as it's a special case for earning leave
+    return sorted([k.replace(" leave", "").title() + " Leave" for k in UI_TO_DB.keys() if k != "working on off/ph/ot"])
 
 
 # ==============================================================================
@@ -1258,4 +1288,3 @@ if __name__ == '__main__':
             
     except Exception as e:
         print(f"An error occurred during example usage: {e}")
-

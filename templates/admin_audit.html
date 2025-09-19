@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container mt-4">
+    <h3>Audit Log</h3>
+    <table id="audit" class="display table table-sm table-hover">
+        <thead>
+            <tr>
+                <th>Time</th>
+                <th>Action</th>
+                <th>By</th>
+                <th>Target</th>
+                <th>Summary</th>
+                <th>Attachment</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for l in logs %}
+            <tr>
+                <td>{{ l[7] }}</td>
+                <td>{{ l[1] }}</td>
+                <td>{{ l[2] }}</td>
+                <td>{{ l[3] }}</td>
+                <td>{{ l[5] }}</td>
+                <td class="text-center">
+                    {% if l[4] %}
+                        <a href="{{ url_for('attachment_preview', leave_id=l[4]) }}" 
+                           class="btn btn-sm btn-primary" target="_blank">
+                            <i class="fas fa-file"></i> View
+                        </a>
+                    {% else %}
+                        -
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<script>
+$(document).ready(function() {
+    $('#audit').DataTable({
+        order: [[0, 'desc']],
+        pageLength: 25,
+        responsive: true
+    });
+});
+</script>
+
+<style>
+.btn-sm {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.875rem;
+}
+</style>
+{% endblock %}

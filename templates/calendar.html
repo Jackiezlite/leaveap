@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block content %}
+<h3>Leave Calendar</h3>
+<select id="userfilter" class="form-control mb-2">
+  <option value="">All users</option>
+  {% for u in users %}<option value="{{ u }}">{{ u }}</option>{% endfor %}
+</select>
+<div id="calendar"></div>
+<link href='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/main.min.css' rel='stylesheet' />
+<script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/main.min.js'></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  var calendarEl = document.getElementById('calendar');
+  var calendar = new FullCalendar.Calendar(calendarEl, {
+    initialView: 'dayGridMonth',
+    events: function(info, successCallback, failureCallback) {
+      var user = document.getElementById('userfilter').value;
+      var url = '/calendar/events' + (user ? ('?user='+encodeURIComponent(user)) : '');
+      fetch(url).then(r=>r.json()).then(data=> successCallback(data));
+    }
+  });
+  calendar.render();
+  document.getElementById('userfilter').addEventListener('change', function(){ calendar.refetchEvents(); });
+});
+</script>
+{% endblock %}

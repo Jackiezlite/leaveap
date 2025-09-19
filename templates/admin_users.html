@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+<h3>Users</h3>
+<form method="POST" class="mb-3">
+  <div class="row">
+    <div class="col"><input class="form-control" name="username" placeholder="Full name"></div>
+    <div class="col"><input class="form-control" name="login_name" placeholder="Login name"></div>
+    <div class="col"><input class="form-control" name="password" placeholder="Password"></div>
+    <div class="col"><select class="form-control" name="role"><option value="user">User</option><option value="admin">Admin</option><option value="superadmin">Superadmin</option></select></div>
+    <div class="col"><button class="btn btn-primary">Create</button></div>
+  </div>
+</form>
+<table id="users" class="display table table-sm">
+<thead><tr><th>ID</th><th>Name</th><th>Login</th><th>Role</th></tr></thead>
+<tbody>
+{% for u in users %}<tr><td>{{ u[0] }}</td><td>{{ u[1] }}</td><td>{{ u[2] }}</td><td>{{ u[3] }}</td></tr>{% endfor %}
+</tbody>
+</table>
+<script>$(document).ready(function(){$('#users').DataTable();});</script>
+{% endblock %}

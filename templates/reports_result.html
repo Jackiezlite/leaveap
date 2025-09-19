@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block content %}
+<h3>Report results for {{ year }}-{{ "%02d"|format(month) }}</h3>
+<table class="table table-sm"><thead><tr><th>ID</th><th>User</th><th>Type</th><th>Date</th><th>Days</th></tr></thead><tbody>
+{% for r in rows %}<tr><td>{{ r[0] }}</td><td>{{ r[1] }}</td><td>{{ r[2] }}</td><td>{{ r[3] }}</td><td>{{ r[4] }}</td></tr>{% endfor %}
+</tbody></table>
+{% endblock %}

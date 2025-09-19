@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Welcome, {{ user['username'] }}</h2>
+<div class="row">
+  <div class="col-md-6">
+    <h4>Apply for Leave</h4>
+    <form method="POST" action="{{ url_for('submit_leave') }}" enctype="multipart/form-data">
+      <div class="mb-2"><input class="form-control" name="type" placeholder="Leave Type" required></div>
+      
+      <!-- Simple Mode -->
+      <div id="simple-mode">
+        <div class="mb-2"><input class="form-control" name="date" type="text" placeholder="Date (DD-MM-YYYY)" required></div>
+        <div class="mb-2"><input class="form-control" name="days" type="number" max="1" value="1" readonly></div>
+      </div>
+
+      <!-- Advanced Mode -->
+      <div id="advanced-mode" style="display:none;">
+        <div class="mb-2">
+          <textarea class="form-control" name="dates" placeholder="Enter dates separated by semicolon (DD-MM-YYYY;DD-MM-YYYY)" rows="3"></textarea>
+          <small class="text-muted">Example: 1-8-2024;2-8-2024</small>
+        </div>
+        <div id="selected-dates" class="mb-2"></div>
+      </div>
+
+      <div class="mb-2">
+        <button type="button" class="btn btn-info btn-sm" id="toggle-mode">Switch to Advanced Mode</button>
+      </div>
+
+      <div class="mb-2"><input class="form-control" name="notes" placeholder="Notes"></div>
+      <div class="mb-2">
+        <input class="form-control" type="file" name="attachment" accept=".pdf,.png,.jpg,.jpeg,.gif">
+        <small class="text-muted">Accepted formats: PDF, PNG, JPG, GIF</small>
+      </div>
+      <button class="btn btn-success" type="submit">Submit</button>
+    </form>
+  </div>
+  <div class="col-md-6">
+    <h4>Your Leaves</h4>
+    <table id="leavetable" class="display table table-striped" style="width:100%">
+      <thead><tr><th>ID</th><th>Type</th><th>Date</th><th>Days</th><th>Status</th><th>Notes</th><th>Attachment</th></tr></thead>
+      <tbody>
+        {% for l in leaves %}
+          <tr>
+            <td>{{ l['id'] }}</td>
+            <td>{{ l['leave_type'] }}</td>
+            <td>{{ l['start_date'] }}</td>
+            <td>{{ l['num_days'] }}</td>
+            <td>{{ l['status'] }}</td>
+            <td>{{ l['notes'] }}</td>
+            <td>{% if l['attachment_path'] or l['attachment_blob'] %}{% set ap = l['attachment_path'] or '' %}{% set ext = (ap.split('.')[-1] if ap else '')|lower %}{% if ext in ['png','jpg','jpeg','gif'] %}<a href="{{ url_for('attachment_preview', leave_id=l['id']) }}" target="_blank"><img src="{{ url_for('attachment_preview', leave_id=l['id']) }}?thumb=1" style="width:80px;border-radius:4px"/></a>{% else %}<a href="{{ url_for('attachment_preview', leave_id=l['id']) }}" target="_blank">View</a>{% endif %}{% else %}-{% endif %}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+<script>
+$(document).ready(function(){
+    $('#leavetable').DataTable();
+    
+    let isAdvancedMode = false;
+    
+    $('#toggle-mode').click(function() {
+        isAdvancedMode = !isAdvancedMode;
+        if(isAdvancedMode) {
+            $('#simple-mode').hide();
+            $('#advanced-mode').show();
+            $(this).text('Switch to Simple Mode');
+        } else {
+            $('#simple-mode').show();
+            $('#advanced-mode').hide();
+            $(this).text('Switch to Advanced Mode');
+        }
+    });
+
+    $('textarea[name="dates"]').on('input', function() {
+        const dates = $(this).val().split(';').filter(date => date.trim());
+        $('#selected-dates').html(
+            '<strong>Selected Dates (' + dates.length + '):</strong><br>' +
+            dates.map(date => date.trim()).join('<br>')
+        );
+        $('input[name="days"]').val(dates.length || 1);
+    });
+});
+</script>
+{% endblock %}

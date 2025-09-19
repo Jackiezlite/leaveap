@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block content %}
+<h3>Leave Requests</h3>
+<table id="leaves" class="display table table-sm">
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>User</th>
+      <th>Type</th>
+      <th>Date</th>
+      <th>Days</th>
+      <th>Status</th>
+      <th>Notes</th>
+      <th>Attachment</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for leave in leaves %}
+    <tr class="{{ 'table-warning' if leave['status'] == 'Pending' else 'table-danger' if leave['status'] == 'Rejected' else 'table-success' }}">
+      <td>{{ leave['id'] }}</td>
+      <td>{{ leave['username'] }}</td>
+      <td>{{ leave['leave_type'] }}</td>
+      <td>{{ leave['start_date'] }}</td>
+      <td>{{ leave['num_days'] }}</td>
+      <td>{{ leave['status'] }}</td>
+      <td>{{ leave['notes'] }}</td>
+      <td>
+        {% if leave['attachment_image'] %}
+          <a href="{{ url_for('attachment_preview', leave_id=leave['id']) }}" target="_blank">View</a>
+        {% else %}
+          -
+        {% endif %}
+      </td>
+      <td>
+        {% if leave['status'] == 'Pending' %}
+          <form style="display:inline" method="POST" action="{{ url_for('admin_approve', leave_id=leave['id']) }}">
+            <button class="btn btn-sm btn-success">Approve</button>
+          </form>
+          <form style="display:inline" method="POST" action="{{ url_for('admin_reject', leave_id=leave['id']) }}">
+            <input name="reason" placeholder="Reason" class="form-control form-control-sm d-inline-block" style="width:150px">
+            <button class="btn btn-sm btn-danger">Reject</button>
+          </form>
+        {% else %}
+          {{ leave['status'] }}
+          {% if leave['status'] == 'Rejected' and leave.get('reason') %}
+            <br><small class="text-muted">Reason: {{ leave['reason'] }}</small>
+          {% endif %}
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<script>
+$(document).ready(function() {
+    $('#leaves').DataTable({
+        order: [
+            [5, 'asc'], // Sort by Status first (column 5)
+            [3, 'desc']  // Then by Date (column 3)
+        ],
+        rowGroup: {
+            dataSrc: 5 // Group by Status
+        },
+        pageLength: 25,
+        columns: [
+            null, // ID
+            null, // User
+            null, // Type
+            null, // Date
+            null, // Days
+            null, // Status
+            null, // Notes
+            { orderable: false }, // Attachment
+            { orderable: false }  // Actions
+        ]
+    });
+});
+</script>
+{% endblock %}

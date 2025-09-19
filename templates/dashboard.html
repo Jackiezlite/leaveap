@@ -11,6 +11,399 @@
     </a>
   </div>
 </div>
+
+<div class="row">
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header">
+        <h4 class="card-title mb-0">Apply for Leave</h4>
+      </div>
+      <div class="card-body">
+        <form method="POST" action="{{ url_for('submit_leave') }}" enctype="multipart/form-data" id="leaveForm">
+          <!-- Leave Type -->
+          <div class="mb-3">
+            <label class="form-label">Leave Type 请假类型</label>
+            <select class="form-select" name="type" id="leaveType" required>
+              <option value="">Select Leave Type 选择请假类型</option>
+              <option value="Annual Leave">Annual Leave 年假</option>
+              <option value="Emergency Leave">Emergency Leave 紧急假</option>
+              <option value="Sick Leave">Sick Leave 病假</option>
+              <option value="Compassionate Leave">Compassionate Leave 慰问假</option>
+              <option value="Cultivation Leave">Cultivation Leave 修行假</option>
+              <option value="Working on Off/PH">Working on Off/PH 加班/节假日工作</option>
+              <option value="Hospital Leave">Hospital Leave 医院假</option>
+              <option value="Maternity Leave">Maternity Leave 产假</option>
+            </select>
+          </div>
+
+          <!-- Mode Switch -->
+          <div class="mb-3">
+            <div class="d-flex justify-content-between align-items-center">
+              <label class="form-label">Date Selection Mode</label>
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" id="modeSwitch">
+                <label class="form-check-label" for="modeSwitch">Advanced Mode</label>
+              </div>
+            </div>
+          </div>
+
+          <!-- Simple Mode -->
+          <div id="simple-mode">
+            <div class="mb-3">
+              <label class="form-label">Leave Date</label>
+              <input type="text" class="form-control" id="simpleDatePicker" name="date" placeholder="Select date">
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Duration (Days)</label>
+              <input type="number" class="form-control" name="days" id="simpleDuration" 
+                     value="1" min="0.5" step="0.5">
+            </div>
+          </div>
+
+          <!-- Advanced Mode -->
+          <div id="advanced-mode" style="display:none">
+            <div class="mb-3">
+              <label class="form-label">Multiple Dates</label>
+              <div class="input-group">
+                <input type="text" class="form-control" id="advancedDateDisplay" readonly
+                       placeholder="Selected dates will appear here">
+                <button type="button" class="btn btn-primary" id="openCalendar">
+                  <i class="fas fa-calendar"></i> Pick Dates
+                </button>
+              </div>
+            </div>
+            <div id="selectedDatesContainer" class="mb-3">
+              <div id="selectedDatesList" class="list-group">
+                <!-- Selected dates will appear here -->
+              </div>
+            </div>
+            <input type="hidden" name="dates" id="datesList">
+          </div>
+
+          <!-- Notes -->
+          <div class="mb-3">
+            <label class="form-label">Notes/Reason</label>
+            <textarea class="form-control" name="notes" rows="2" placeholder="Enter your reason for leave"></textarea>
+          </div>
+
+          <!-- Attachment -->
+          <div class="mb-3">
+            <label class="form-label">Attachment (Optional)</label>
+            <input type="file" class="form-control" name="attachment" 
+                   accept=".pdf,.png,.jpg,.jpeg,.gif">
+            <small class="text-muted">Accepted formats: PDF, PNG, JPG, GIF</small>
+          </div>
+
+          <!-- Submit Button -->
+          <div class="d-grid">
+            <button type="submit" class="btn btn-primary">
+              <i class="fas fa-paper-plane"></i> Submit Leave Request
+            </button>
+          </div>
+        </form>
+
+        <!-- Calendar Modal -->
+        <div class="modal fade" id="calendarModal" tabindex="-1">
+          <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+              <div class="modal-header">
+                <h5 class="modal-title">Select Leave Dates</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+              </div>
+              <div class="modal-body">
+                <div class="row">
+                  <div class="col-md-8">
+                    <div id="calendar"></div>
+                  </div>
+                  <div class="col-md-4">
+                    <div class="card">
+                      <div class="card-header d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0">Selected Dates</h6>
+                        <button type="button" class="btn btn-sm btn-outline-danger" id="clearAllDates">
+                          Clear All
+                        </button>
+                      </div>
+                      <div class="list-group list-group-flush" id="modalSelectedDates">
+                        <!-- Selected dates will appear here -->
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" id="confirmDates">Confirm Dates</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header">
+        <h4 class="card-title mb-0">Your Leaves</h4>
+      </div>
+      <div class="card-body">
+        <table id="leavetable" class="display table table-sm">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Type</th>
+              <th>Date</th>
+              <th>Days</th>
+              <th>Status</th>
+              <th>Notes</th>
+              <th>Attachment</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for l in leaves %}
+            <tr class="{{ 'table-warning' if l['status'] == 'Pending' else 'table-danger' if l['status'] == 'Rejected' else 'table-success' if l['status'] == 'Approved' else '' }}">
+              <td>{{ l['id'] }}</td>
+              <td>{{ l['leave_type'] }}</td>
+              <td>{{ l['start_date'] }}</td>
+              <td>{{ l['num_days'] }}</td>
+              <td>
+                <span class="badge {{ 'bg-warning text-dark' if l['status'] == 'Pending' else 'bg-danger' if l['status'] == 'Rejected' else 'bg-success' }}">
+                  {{ l['status'] }}
+                </span>
+              </td>
+              <td>{{ l['notes'] or '-' }}</td>
+              <td class="text-center">
+                {% if l['attachment_image'] %}
+                  <a href="{{ url_for('attachment_preview', leave_id=l['id']) }}" target="_blank" class="btn btn-sm btn-outline-primary">
+                    <i class="fas fa-file"></i> View
+                  </a>
+                {% else %}
+                  -
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+$(document).ready(function() {
+    // Initialize DataTable
+    $('#leavetable').DataTable({
+        order: [[0, 'desc']],
+        pageLength: 10
+    });
+
+    // Initialize Simple Mode Date Picker
+    const simplePicker = flatpickr("#simpleDatePicker", {
+        dateFormat: "Y-m-d",
+        minDate: "today",
+        onChange: function(selectedDates, dateStr) {
+            if (selectedDates.length > 0) {
+                $('#simpleDuration').prop('disabled', false);
+            } else {
+                $('#simpleDuration').prop('disabled', true).val(1);
+            }
+        }
+    });
+
+    // Store selected dates for advanced mode
+    let selectedDates = new Map(); // date -> duration
+
+    // Initialize calendar
+    let calendar = null;
+    
+    $('#openCalendar').click(function() {
+        const modal = new bootstrap.Modal(document.getElementById('calendarModal'));
+        
+        // Initialize calendar if not already done
+        if (!calendar) {
+            calendar = new FullCalendar.Calendar(document.getElementById('calendar'), {
+                initialView: 'dayGridMonth',
+                selectable: true,
+                select: function(info) {
+                    const dateStr = info.startStr;
+                    if (!selectedDates.has(dateStr)) {
+                        selectedDates.set(dateStr, 1);
+                        updateSelectedDatesDisplay();
+                    }
+                },
+                validRange: function(nowDate) {
+                    return { start: nowDate };
+                },
+                headerToolbar: {
+                    left: 'prev,next today',
+                    center: 'title',
+                    right: ''
+                }
+            });
+        }
+        
+        calendar.render();
+        updateSelectedDatesDisplay();
+        modal.show();
+    });
+
+    // Mode Switch Handler
+    $('#modeSwitch').change(function() {
+        const isAdvanced = $(this).prop('checked');
+        $('#simple-mode').toggle(!isAdvanced);
+        $('#advanced-mode').toggle(isAdvanced);
+        
+        // Reset the other mode
+        if (isAdvanced) {
+            simplePicker.clear();
+            $('#simpleDuration').val(1).prop('disabled', true);
+        } else {
+            selectedDates.clear();
+            updateSelectedDatesDisplay();
+        }
+    });
+
+    // Update Selected Dates Display
+    function updateSelectedDatesDisplay() {
+        const modalList = $('#modalSelectedDates');
+        const mainList = $('#selectedDatesList');
+        modalList.empty();
+        mainList.empty();
+
+        if (selectedDates.size > 0) {
+            const dates = Array.from(selectedDates.entries()).sort();
+            let summary = [];
+            
+            dates.forEach(([date, duration]) => {
+                const dateObj = new Date(date);
+                const formattedDate = dateObj.toLocaleDateString('en-GB', {
+                    weekday: 'short',
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric'
+                });
+
+                // Add to modal list
+                modalList.append(`
+                    <div class="list-group-item">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <strong>${formattedDate}</strong>
+                                <div class="mt-1">
+                                    <div class="input-group input-group-sm" style="width: 120px">
+                                        <input type="number" class="form-control" 
+                                               value="${duration}" min="0.5" max="1" step="0.5"
+                                               onchange="updateDateDuration('${date}', this.value)">
+                                        <span class="input-group-text">day(s)</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <button type="button" class="btn btn-sm btn-outline-danger" 
+                                    onclick="removeDate('${date}')">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                    </div>
+                `);
+
+                summary.push(`${formattedDate} (${duration}d)`);
+            });
+
+            // Update main display
+            $('#advancedDateDisplay').val(summary.join(', '));
+
+            // Update hidden input with date:duration pairs
+            const datesList = dates.map(([date, dur]) => `${date}:${dur}`).join(';');
+            $('#datesList').val(datesList);
+        } else {
+            $('#advancedDateDisplay').val('');
+            $('#datesList').val('');
+        }
+    }
+
+    // Clear all dates
+    $('#clearAllDates').click(function() {
+        selectedDates.clear();
+        updateSelectedDatesDisplay();
+        if (calendar) calendar.unselect();
+    });
+
+    // Confirm dates
+    $('#confirmDates').click(function() {
+        const modal = bootstrap.Modal.getInstance(document.getElementById('calendarModal'));
+        modal.hide();
+    });
+
+    // Handle date duration update
+    window.updateDateDuration = function(date, value) {
+        const duration = parseFloat(value);
+        if (!isNaN(duration) && duration >= 0.5 && duration <= 1) {
+            selectedDates.set(date, duration);
+            updateSelectedDatesDisplay();
+        }
+    };
+
+    // Handle date removal
+    window.removeDate = function(date) {
+        selectedDates.delete(date);
+        updateSelectedDatesDisplay();
+        if (calendar) calendar.unselect();
+    };
+
+    // Form validation
+    $('#leaveForm').on('submit', function(e) {
+        const isAdvanced = $('#modeSwitch').prop('checked');
+        
+        if (isAdvanced && selectedDates.size === 0) {
+            e.preventDefault();
+            alert('Please select at least one date');
+            return false;
+        }
+        
+        if (!isAdvanced && !$('#simpleDatePicker').val()) {
+            e.preventDefault();
+            alert('Please select a date');
+            return false;
+        }
+
+        return true;
+    });
+});
+</script>
+
+<style>
+.card {
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+    border: none;
+}
+
+.badge {
+    font-weight: 500;
+}
+
+.form-switch .form-check-input {
+    width: 3em;
+}
+
+#calendar {
+    height: 400px;
+}
+
+.selected-date {
+    background-color: #e3f2fd;
+    border-left: 3px solid #2196f3;
+}
+
+.list-group-item {
+    padding: 0.5rem 1rem;
+}
+
+.modal-lg {
+    max-width: 900px;
+}
+</style>
+{% endblock %}
 <div class="row">
   <div class="col-md-6">
     <div class="card">

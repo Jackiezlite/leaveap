@@ -40,12 +40,12 @@
                 <td>{{ date }}</td>
                 <td class="holiday-name">{{ name }}</td>
                 <td>
-                    <button class="btn btn-sm btn-outline-primary edit-holiday">
-                        <i class="fas fa-edit"></i> Edit
-                    </button>
-                    <button class="btn btn-sm btn-outline-danger delete-holiday">
-                        <i class="fas fa-trash"></i> Delete
-                    </button>
+                    <form method="POST" action="{{ url_for('admin_holidays_remove') }}" style="display: inline;">
+                        <input type="hidden" name="date" value="{{ date }}">
+                        <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Are you sure you want to delete this holiday?')">
+                            <i class="fas fa-trash"></i> Delete
+                        </button>
+                    </form>
                 </td>
             </tr>
             {% endfor %}
@@ -57,6 +57,7 @@
     <table id="customHolidaysTable" class="display table table-hover">
         <thead>
             <tr>
+                <th>Year</th>
                 <th>Date</th>
                 <th>Name</th>
                 <th>Actions</th>
@@ -64,21 +65,20 @@
         </thead>
         <tbody>
             {% for year, holidays in annual_holidays.items() %}
-                {% for date, name in holidays.items() %}
-                <tr data-date="{{ date }}">
-                    <td>{{ date }}</td>
-                    <td class="holiday-name">{{ name }}</td>
-                    <td>
-                        <button class="btn btn-sm btn-outline-primary edit-holiday">
-                            <i class="fas fa-edit"></i> Edit
-                        </button>
-                        <button class="btn btn-sm btn-outline-danger delete-holiday">
-                            <i class="fas fa-trash"></i> Delete
-                        </button>
-                        <button class="btn btn-sm btn-outline-success make-default">
-                            <i class="fas fa-star"></i> Make Default
-                        </button>
-                    </td>
+                {% if year != "defaults" %}
+                    {% for date, name in holidays.items() %}
+                    <tr data-date="{{ date }}">
+                        <td>{{ year }}</td>
+                        <td>{{ date }}</td>
+                        <td class="holiday-name">{{ name }}</td>
+                        <td>
+                            <form method="POST" action="{{ url_for('admin_holidays_remove') }}" style="display: inline;">
+                                <input type="hidden" name="date" value="{{ date }}">
+                                <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Are you sure you want to delete this holiday?')">
+                                    <i class="fas fa-trash"></i> Delete
+                                </button>
+                            </form>
+                        </td>
                 </tr>
                 {% endfor %}
             {% endfor %}
@@ -89,15 +89,15 @@
 <script>
 $(document).ready(function() {
     // Initialize DataTables
-    $('#defaultHolidaysTable, #customHolidaysTable').DataTable({
+    $('#defaultHolidaysTable').DataTable({
         order: [[0, 'asc']],
         pageLength: 10
     });
-
-    // Edit Holiday
-    $('.edit-holiday').click(function() {
-        const row = $(this).closest('tr');
-        const nameCell = row.find('.holiday-name');
+    $('#customHolidaysTable').DataTable({
+        order: [[0, 'asc'], [1, 'asc']],
+        pageLength: 10
+    });
+});
         const currentName = nameCell.text();
         
         const input = $('<input>')

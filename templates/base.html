@@ -5,10 +5,30 @@
     <title>Leave App</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link href='https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.css' rel='stylesheet'>
-    <style>body{padding:1rem}</style>
+    <link href="{{ url_for('static', filename='css/calendar-interactions.css') }}" rel="stylesheet">
+    <style>
+      body { padding: 1rem }
+      .calendar-container { 
+        background: white;
+        padding: 15px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        margin-bottom: 1rem;
+      }
+      .fc { font-size: 0.9em; }
+      .selected-date {
+        padding: 8px;
+        background: #f8f9fa;
+        border-radius: 4px;
+        margin-bottom: 10px;
+      }
+      .date-duration-input {
+        width: 80px !important;
+        display: inline-block !important;
+      }
+    </style>
   </head>
   <body>
     <nav class="navbar navbar-expand-lg navbar-light bg-light mb-3">
@@ -43,16 +63,284 @@
       {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
           {% for cat, msg in messages %}
-            <div class="alert alert-{{ 'success' if cat=='success' else 'danger' }}">{{ msg }}</div>
+            <div class="alert alert-{{ cat }}">{{ msg | replace('\n', '<br>') | safe }}</div>
           {% endfor %}
         {% endif %}
       {% endwith %}
       {% block content %}{% endblock %}
     </div>
+    <!-- Core Libraries -->
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- Additional Libraries -->
     <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
     <script src='https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.js'></script>
+    
+    <!-- Initialize FullCalendar -->
+    <script>
+      document.addEventListener('DOMContentLoaded', function() {
+        // Simple Calendar - Single Date Selection
+        const simpleCalendarEl = document.getElementById('simpleCalendar');
+        if (simpleCalendarEl) {
+          const simpleCalendar = new FullCalendar.Calendar(simpleCalendarEl, {
+            initialView: 'dayGridMonth',
+            height: 'auto',
+            headerToolbar: {
+              left: 'prev,next today',
+              center: 'title',
+              right: '' // Removed month button
+            },
+            selectable: true,
+            selectMirror: true,
+            dayMaxEvents: true,
+            select: function(info) {
+              // Update hidden input
+              document.getElementById('simpleDateInput').value = info.startStr;
+              // Update display
+              const display = document.getElementById('simpleDateDisplay');
+              if (display) {
+                display.innerHTML = new Date(info.startStr).toLocaleDateString('en-US', {
+                  weekday: 'long',
+                  year: 'numeric',
+                  month: 'long',
+                  day: 'numeric'
+                });
+              }
+              
+              // Check duration and handle AM/PM if needed
+              const simpleDuration = document.getElementById('simpleDuration');
+              if (simpleDuration && parseFloat(simpleDuration.value) < 1.0) {
+                const ampm = confirm("Click OK for AM, Cancel for PM") ? "AM" : "PM";
+                const seed = generateSeed();
+                simpleDuration.dataset.ampm = ampm;
+                simpleDuration.dataset.seed = seed;
+                
+                // Update notes field
+                const notesField = document.querySelector('textarea[name="notes"]');
+                if (notesField) {
+                  let currentNotes = notesField.value;
+                  // Remove any existing seed/AMPM tag for this date if it exists
+                  currentNotes = currentNotes.replace(/\[\d{8}\] (AM|PM): .*?\n/g, '');
+                  // Add new seed/AMPM tag
+                  const newNote = `[${seed}] ${ampm}: ${info.startStr}\n`;
+                  notesField.value = newNote + currentNotes;
+                }
+              }
+              // Clear all existing events and add new highlight
+              simpleCalendar.removeAllEvents();  // Clear all previous highlights
+              simpleCalendar.unselect();  // Clear any existing selection
+              info.view.calendar.addEvent({
+                start: info.startStr,
+                end: info.endStr,
+                display: 'background',
+                backgroundColor: '#198754'  // Bootstrap success color
+              });
+            },
+            unselectAuto: false
+          });
+          simpleCalendar.render();
+        }
+
+        // Advanced Calendar - Multiple Date Selection
+        const advancedCalendarEl = document.getElementById('advancedCalendar');
+        if (advancedCalendarEl) {
+          const advancedCalendar = new FullCalendar.Calendar(advancedCalendarEl, {
+            initialView: 'dayGridMonth',
+            height: 'auto',
+            headerToolbar: {
+              left: 'prev,next today',
+              center: 'title',
+              right: '' // Removed month button
+            },
+            selectable: true,
+            selectMirror: true,
+            dayMaxEvents: true,
+            select: function(info) {
+              const startDate = new Date(info.startStr);
+              const endDate = new Date(info.endStr);
+              
+              // Add selected dates to the list
+              const datesList = document.getElementById('selectedDatesList');
+              const noDateMessage = document.getElementById('noDateSelectedMessage');
+              
+              if (datesList) {
+                // Create unique ID for the date
+                const dateId = 'date-' + startDate.getTime();
+                
+                // Add date to list if not already present
+                if (!document.getElementById(dateId)) {
+                  const dateItem = document.createElement('div');
+                  dateItem.id = dateId;
+                  dateItem.className = 'list-group-item d-flex justify-content-between align-items-center';
+                  dateItem.innerHTML = `
+                    <div class="d-flex align-items-center flex-grow-1 me-3">
+                      <span class="me-3">${startDate.toLocaleDateString('en-US', {
+                        weekday: 'short',
+                        month: 'short',
+                        day: 'numeric'
+                      })}</span>
+                      <div class="input-group" style="width: 120px">
+                        <input type="number" 
+                               class="form-control form-control-sm date-duration-input" 
+                               value="1.0" 
+                               min="0.125" 
+                               max="1.0" 
+                               step="0.125"
+                               onchange="validateDuration(this, '${dateId}')"
+                               style="width: 70px !important">
+                        <span class="input-group-text" style="font-size: 0.875rem">day</span>
+                      </div>
+                    </div>
+                    <button type="button" class="btn-close btn-sm ms-2" onclick="removeDate('${dateId}')"></button>
+                  `;
+                  datesList.appendChild(dateItem);
+                  
+                  // Hide "no dates selected" message
+                  if (noDateMessage) noDateMessage.style.display = 'none';
+                }
+              }
+              
+              // Update hidden input with all selected dates
+              updateSelectedDates();
+              
+              // Add visual highlight for the selected date
+              info.view.calendar.addEvent({
+                start: info.startStr,
+                end: info.endStr,
+                display: 'background',
+                backgroundColor: '#198754'  // Bootstrap success color
+              });
+            }
+          });
+          advancedCalendar.render();
+        }
+      });
+
+      // Function to remove a date from the advanced mode list
+      function removeDate(dateId) {
+        const dateElement = document.getElementById(dateId);
+        if (dateElement) {
+          dateElement.remove();
+          
+          // Show "no dates selected" message if list is empty
+          const datesList = document.getElementById('selectedDatesList');
+          const noDateMessage = document.getElementById('noDateSelectedMessage');
+          if (datesList && noDateMessage && datesList.children.length === 0) {
+            noDateMessage.style.display = 'block';
+          }
+          
+          // Update hidden input
+          updateSelectedDates();
+        }
+      }
+
+      // Function to generate random 8-digit number
+      function generateSeed() {
+        return Math.floor(10000000 + Math.random() * 90000000);
+      }
+
+      // Function to validate duration input
+      function validateDuration(input, dateId) {
+        let value = parseFloat(input.value);
+        
+        // Enforce min/max constraints
+        if (value < 0.125) value = 0.125;  // Minimum 1 hour
+        if (value > 1.0) value = 1.0;      // Maximum 1 day
+        
+        // Round to nearest hour (0.125 day)
+        const rounded = Math.round(value * 8) / 8;
+        input.value = rounded.toFixed(3);
+        
+        // Update the hidden input
+        updateSelectedDates();
+      }
+
+      // Function to update the hidden input with selected dates and their durations
+      function updateSelectedDates() {
+        const datesList = document.getElementById('selectedDatesList');
+        const datesInput = document.getElementById('datesList');
+        if (datesList && datesInput) {
+          const dates = Array.from(datesList.children).map(item => {
+            const dateId = item.id.replace('date-', '');
+            const durationInput = item.querySelector('.date-duration-input');
+            const duration = durationInput ? parseFloat(durationInput.value) : 1.0;
+            const ampm = durationInput && durationInput.dataset.ampm;
+            const seed = durationInput && durationInput.dataset.seed;
+            
+            return {
+              date: new Date(parseInt(dateId)).toISOString().split('T')[0],
+              duration: duration,
+              ampm: duration < 1.0 ? (ampm || "PM") : null,
+              seed: duration < 1.0 ? (seed || generateSeed().toString()) : null
+            };
+          });
+          datesInput.value = JSON.stringify(dates);
+        }
+      }
+
+      // Set up mode switch handler
+      const modeSwitch = document.getElementById('modeSwitch');
+      if (modeSwitch) {
+        modeSwitch.addEventListener('change', function() {
+          const simpleMode = document.getElementById('simple-mode');
+          const advancedMode = document.getElementById('advanced-mode');
+          
+          if (this.checked) {
+            simpleMode.style.display = 'none';
+            advancedMode.style.display = 'block';
+            if (document.querySelector('#advancedCalendar .fc')) {
+              document.querySelector('#advancedCalendar .fc').style.display = 'block';
+            }
+          } else {
+            advancedMode.style.display = 'none';
+            simpleMode.style.display = 'block';
+            if (document.querySelector('#simpleCalendar .fc')) {
+              document.querySelector('#simpleCalendar .fc').style.display = 'block';
+            }
+          }
+          
+          // Force calendar resize to fix display issues
+          window.dispatchEvent(new Event('resize'));
+        });
+      }
+    </script>
+
+    <style>
+      /* Calendar Highlight Styles */
+      .fc-highlight {
+        background: #198754 !important;
+        opacity: 0.3;
+      }
+      .fc-event-main {
+        opacity: 0.3;
+      }
+      .fc td.fc-day {
+        cursor: pointer;
+      }
+      .fc td.fc-day:hover {
+        background: rgba(25, 135, 84, 0.1);
+      }
+      
+      /* Duration input styling */
+      .date-duration-input:invalid {
+        border-color: #dc3545;
+        background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' width='12' height='12' fill='none' stroke='%23dc3545'%3e%3ccircle cx='6' cy='6' r='4.5'/%3e%3cpath stroke-linejoin='round' d='M5.8 3.6h.4L6 6.5z'/%3e%3ccircle cx='6' cy='8.2' r='.6' fill='%23dc3545' stroke='none'/%3e%3c/svg%3e");
+        background-repeat: no-repeat;
+        background-position: right calc(.375em + .1875rem) center;
+        background-size: calc(.75em + .375rem) calc(.75em + .375rem);
+        padding-right: calc(1.5em + .75rem);
+      }
+      
+      .date-duration-input:valid {
+        border-color: #198754;
+      }
+      
+      .input-group-text {
+        border-color: inherit;
+      }
+    </style>
+    <script src="{{ url_for('static', filename='js/drag-feedback.js') }}"></script>
   </body>
 </html>

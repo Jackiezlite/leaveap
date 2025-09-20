@@ -15,21 +15,81 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # Core Functions
+def get_leave_update_prompt(user_id):
+    """Get a summary of leave updates if user hasn't seen the latest update."""
+    apply_annual_leave_updates()
+
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+
+        # Get user's last seen update
+        c.execute("SELECT upd FROM Users WHERE id = ?", (user_id,))
+        row = c.fetchone()
+        last_seen = row[0] if row else None
+
+        # Get system-wide last update
+        c.execute("SELECT last_updated FROM LeaveUpdateLog")
+        log_row = c.fetchone()
+        log_date = log_row[0] if log_row else None
+
+        # If user hasn't seen the latest update, show them a summary
+        if not last_seen or not log_date or last_seen < log_date:
+            c.execute("""
+                SELECT TotalLeave, cf_leave, SickLeave, hospital_leave,
+                    cultivationLeave, compassionateLeave, ReplacementLeave, pregnantLeave
+                FROM Users WHERE id = ?
+            """, (user_id,))
+            u = c.fetchone()
+
+            if u:
+                summary = [
+                    f"🆕 New Annual Leave: {u[0]}",  # TotalLeave
+                    f"📦 Carry Forward: {u[1]}",     # cf_leave
+                    f"🩺 Sick Leave: {u[2]}",        # SickLeave
+                    f"🏥 Hospital: {u[3]}",          # hospital_leave
+                    f"🧘 Cultivation: {u[4]}",       # cultivationLeave
+                    f"🧸 Compassionate: {u[5]}",     # compassionateLeave
+                    f"♻️ Replacement Leave: {u[6]}", # ReplacementLeave
+                    f"🤰 Pregnant Leave: {u[7]}"     # pregnantLeave
+                ]
+            return "\n".join(summary)
+    return None
+
+def migrate_db():
+    """Perform any necessary database migrations"""
+    with sqlite3.connect(DB_PATH) as conn:
+        c = conn.cursor()
+        
+        # Check if attachment_name column exists
+        c.execute("PRAGMA table_info(LeaveRequests)")
+        columns = [column[1] for column in c.fetchall()]
+        
+        if 'attachment_name' not in columns:
+            print("Adding attachment_name column...")
+            try:
+                c.execute("ALTER TABLE LeaveRequests ADD COLUMN attachment_name TEXT")
+                conn.commit()
+            except sqlite3.OperationalError:
+                # Column might already exist
+                pass
+                
+        # Migrate attachment_image to attachment_blob if needed
+        if 'attachment_image' in columns and 'attachment_blob' not in columns:
+            print("Migrating attachment_image to attachment_blob...")
+            try:
+                c.execute("ALTER TABLE LeaveRequests ADD COLUMN attachment_blob BLOB")
+                c.execute("UPDATE LeaveRequests SET attachment_blob = attachment_image")
+                conn.commit()
+                # We'll keep the old column for now for safety
+            except sqlite3.OperationalError:
+                pass
+
 def init_db():
     """Initialize database with all required tables"""
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute("PRAGMA foreign_keys = ON;")
         c = conn.cursor()
-        # Create Holidays table
-        c.execute("""CREATE TABLE IF NOT EXISTS Holidays (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            date TEXT NOT NULL,
-            name TEXT NOT NULL,
-            is_default INTEGER DEFAULT 0,
-            year TEXT,
-            UNIQUE(date, year)
-        );""")
-        
         c.execute("""CREATE TABLE IF NOT EXISTS Users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE NOT NULL,
@@ -64,6 +124,7 @@ def init_db():
             leave_source TEXT,
             attachment_path TEXT,
             attachment_blob BLOB,
+            attachment_name TEXT,
             bal REAL,
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY(user_id) REFERENCES Users(id) ON DELETE CASCADE
@@ -89,8 +150,10 @@ def init_db():
             full_diff TEXT,
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         );""")
+        
         conn.commit()
     ensure_default_admin()
+    sync_holidays_from_json()
 
 def ensure_default_admin():
     with sqlite3.connect(DB_PATH) as conn:
@@ -106,27 +169,59 @@ def hash_password(pw: str) -> str:
     return hashlib.sha256(pw.encode()).hexdigest()
 
 def get_holidays() -> Dict[str, Dict[str, str]]:
-    """Get all holidays from the JSON file"""
-    try:
-        with open(HOLIDAYS_JSON, 'r') as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        # Return empty structure if file doesn't exist or is invalid
-        return {"defaults": {}, str(datetime.now().year): {}}
-
-def get_default_holidays() -> Dict[str, str]:
-    """Get the default holidays that repeat every year"""
+    """Get all holidays from the JSON file, with defaults included in current year"""
+    current_year = str(datetime.now().year)
     try:
         with open(HOLIDAYS_JSON, 'r') as f:
             data = json.load(f)
-            return data.get('defaults', {})
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {}
-        with open(HOLIDAYS_JSON, 'r') as f:
-            return json.load(f)
+            # Add default holidays to current year
+            defaults = data.get('defaults', {})
+            result = data.copy()
+            result.setdefault(current_year, {})
+            for mm_dd, name in defaults.items():
+                result[current_year][f"{current_year}-{mm_dd}"] = name
+            return result
     except (FileNotFoundError, json.JSONDecodeError):
         # Return empty structure if file doesn't exist or is invalid
-        return {"defaults": {}, str(datetime.now().year): {}}
+        return {"defaults": {}, current_year: {}}
+
+def get_holidays_for_year(year: int) -> Dict[str, str]:
+    """Get all holidays for a specific year, including defaults"""
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        
+        holidays = {}
+        
+        # Get default holidays
+        c.execute("""
+            SELECT date, name FROM Holidays 
+            WHERE is_default = 1
+        """)
+        for row in c.fetchall():
+            full_date = f"{year}-{row['date']}"
+            holidays[full_date] = row['name']
+        
+        # Get year-specific holidays
+        c.execute("""
+            SELECT date, name FROM Holidays 
+            WHERE year = ?
+        """, (year,))
+        for row in c.fetchall():
+            holidays[row['date']] = row['name']
+        
+        return holidays
+
+def get_default_holidays() -> Dict[str, str]:
+    """Get the default holidays that repeat every year"""
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute("""
+            SELECT date, name FROM Holidays 
+            WHERE is_default = 1
+        """)
+        return {row['date']: row['name'] for row in c.fetchall()}
 
 def verify_login(login_name: str, password: str):
     pwd = hash_password(password)
@@ -169,9 +264,9 @@ def submit_leave(user_id: int, leave_type: str, start_date: str, num_days: float
             for date in dates:
                 c.execute(""" 
                     INSERT INTO LeaveRequests 
-                    (user_id, leave_type, start_date, num_days, notes, replacement_leave, attachment_image) 
-                    VALUES (?,?,?,?,?,?,?)
-                """, (user_id, leave_type, date, 1, notes, replacement_leave, attachment_bytes))
+                    (user_id, leave_type, start_date, num_days, notes, replacement_leave, attachment_blob, attachment_name) 
+                    VALUES (?,?,?,?,?,?,?,?)
+                """, (user_id, leave_type, date, 1, notes, replacement_leave, attachment_bytes, attachment_filename))
                 leave_id = c.lastrowid
                 leave_ids.append(leave_id)
                 audit("Submit Leave", 
@@ -187,9 +282,9 @@ def submit_leave(user_id: int, leave_type: str, start_date: str, num_days: float
             c = conn.cursor()
             c.execute(""" 
                 INSERT INTO LeaveRequests 
-                (user_id, leave_type, start_date, num_days, notes, replacement_leave, attachment_image) 
-                VALUES (?,?,?,?,?,?,?)
-            """, (user_id, leave_type, start_date, num_days, notes, replacement_leave, attachment_bytes))
+                (user_id, leave_type, start_date, num_days, notes, replacement_leave, attachment_blob, attachment_name) 
+                VALUES (?,?,?,?,?,?,?,?)
+            """, (user_id, leave_type, start_date, num_days, notes, replacement_leave, attachment_bytes, attachment_filename))
             conn.commit()
             lrid = c.lastrowid
             audit("Submit Leave", 
@@ -233,8 +328,8 @@ def apply_annual_leave_updates():
         c.execute("SELECT last_updated, march_processed FROM LeaveUpdateLog")
         row = c.fetchone()
         if row:
-            last_updated = date.fromisoformat(row[0])
-            march_transfer_done = bool(row[1])
+            last_updated = date.fromisoformat(row[0])  # last_updated is first column
+            march_transfer_done = bool(row[1])         # march_processed is second column
         else:
             last_updated = date(2000, 1, 1)
             march_transfer_done = False
@@ -250,11 +345,11 @@ def apply_annual_leave_updates():
         is_new_year = today.year != last_updated.year
         crossed_march = today.month > 3 and not march_transfer_done
 
-        holidays_data = load_holiday_json()
-        current_year = str(today.year)
+        # Get holidays for current year
+        holidays = get_holidays_for_year(today.year)
         month_holidays = {
             datetime.strptime(date_str, "%Y-%m-%d").date()
-            for date_str in holidays_data.get(current_year, {})
+            for date_str in holidays.keys()
             if datetime.strptime(date_str, "%Y-%m-%d").month == today.month
         }
 
@@ -393,19 +488,85 @@ def load_holiday_json():
     with open(HOLIDAYS_JSON, "r", encoding="utf-8") as f:
         return json.load(f)
 
+def sync_holidays_from_json():
+    """Synchronize holidays from JSON file to the database"""
+    try:
+        holidays = get_holidays()
+        
+        with sqlite3.connect(DB_PATH) as conn:
+            c = conn.cursor()
+            # Clear existing holidays
+            c.execute("DELETE FROM Holidays")
+            
+            # Add default holidays
+            default_holidays = holidays.get('defaults', {})
+            current_year = str(datetime.now().year)
+            
+            # Process default holidays
+            for date_str, name in default_holidays.items():
+                # Convert MM-DD to current year's full date
+                c.execute("""
+                    INSERT OR REPLACE INTO Holidays (date, name, is_default, year)
+                    VALUES (?, ?, 1, NULL)
+                """, (date_str, name))
+            
+            # Process year-specific holidays
+            for year, year_holidays in holidays.items():
+                if year != 'defaults':
+                    for date_str, name in year_holidays.items():
+                        c.execute("""
+                            INSERT OR REPLACE INTO Holidays (date, name, is_default, year)
+                            VALUES (?, ?, 0, ?)
+                        """, (date_str, name, int(year)))
+            
+            conn.commit()
+    except Exception as e:
+        print(f"Error syncing holidays: {e}")
+
 def add_holiday(date_str: str, name: str):
+    """Add a new holiday and sync with database"""
     data = load_holiday_json()
     year = date_str.split("-")[0]
     data.setdefault(year, {})[date_str] = name
     with open(HOLIDAYS_JSON, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
+    
+    # Update the database
+    with sqlite3.connect(DB_PATH) as conn:
+        c = conn.cursor()
+        if len(date_str.split("-")) == 3:  # Full date (YYYY-MM-DD)
+            c.execute("""
+                INSERT OR REPLACE INTO Holidays (date, name, is_default, year)
+                VALUES (?, ?, 0, ?)
+            """, (date_str, name, int(year)))
+        else:  # Default holiday (MM-DD)
+            c.execute("""
+                INSERT OR REPLACE INTO Holidays (date, name, is_default, year)
+                VALUES (?, ?, 1, NULL)
+            """, (date_str, name))
+        conn.commit()
+    
     audit("Add Holiday", performed_by="system", change_summary=f"{date_str}->{name}")
 
 def remove_holiday(date_str: str):
+    """Remove a holiday from both JSON and database"""
     data = load_holiday_json()
     year = date_str.split("-")[0]
+    
+    # Remove from JSON file
     if year in data and date_str in data[year]:
         del data[year][date_str]
+        with open(HOLIDAYS_JSON, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+    
+    # Remove from database
+    with sqlite3.connect(DB_PATH) as conn:
+        c = conn.cursor()
+        if len(date_str.split("-")) == 3:  # Full date (YYYY-MM-DD)
+            c.execute("DELETE FROM Holidays WHERE date = ? AND year = ?", (date_str, int(year)))
+        else:  # Default holiday (MM-DD)
+            c.execute("DELETE FROM Holidays WHERE date = ? AND is_default = 1", (date_str,))
+        conn.commit()
         with open(HOLIDAYS_JSON, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
         audit("Remove Holiday", performed_by="system", change_summary=f"{date_str} removed")
@@ -854,13 +1015,12 @@ def apply_annual_leave_updates():
 
     with sqlite3.connect(DB_PATH) as conn:
         c = conn.cursor()
-        conn.row_factory = sqlite3.Row
 
         # Get system log state
         log_row = c.execute("SELECT last_updated, march_processed FROM LeaveUpdateLog").fetchone()
         if log_row:
-            last_updated = date.fromisoformat(log_row['last_updated'])
-            march_transfer_done = bool(log_row['march_processed'])
+            last_updated = date.fromisoformat(log_row[0])  # last_updated is first column
+            march_transfer_done = bool(log_row[1])         # march_processed is second column
         else:
             last_updated = date(2000, 1, 1)
             march_transfer_done = False
@@ -960,22 +1120,6 @@ def get_leave_request_by_id(request_id: int) -> Optional[Dict[str, Any]]:
         request = conn.execute("SELECT * FROM LeaveRequests WHERE id = ?", (request_id,)).fetchone()
         return dict(request) if request else None
         
-def get_holidays_for_year(year: int) -> Dict[str, str]:
-    """Returns a flat dictionary of holidays for a given year."""
-    all_holidays = {}
-    holidays_data = load_holiday_json()
-    year_str = str(year)
-
-    # Add default holidays for the given year
-    for mm_dd, name in holidays_data.get("defaults", {}).items():
-        all_holidays[f"{year_str}-{mm_dd}"] = name
-
-    # Add/overwrite with year-specific holidays
-    for yyyy_mm_dd, name in holidays_data.get(year_str, {}).items():
-        all_holidays[yyyy_mm_dd] = name
-        
-    return all_holidays
-
 def get_pending_requests(approver_id: int) -> List[Dict[str, Any]]:
     """
     Fetches pending leave requests based on the approver's role.

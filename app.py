@@ -3,6 +3,7 @@ import backend, os, io, sqlite3
 from werkzeug.utils import secure_filename
 from datetime import datetime
 import base64
+import random
 
 def get_leave_details(leave_id: int):
     """Get leave request details including attachment info"""
@@ -97,9 +98,21 @@ def dashboard():
 def submit_leave():
     u = current_user()
     lt = request.form.get("type","").strip()
-    start = request.form.get("date","").strip()
-    end = request.form.get("end_date","").strip()
     notes = request.form.get("notes","").strip()
+    
+    # Check for advanced mode
+    dates_list = request.form.get("dates", "").strip()
+    if dates_list:  # Advanced mode
+        start_dates = [d for d in dates_list.split(';') if d]  # Filter out empty strings
+        if not start_dates:
+            flash("Please select at least one date", "danger")
+            return redirect(url_for("dashboard"))
+    else:  # Simple mode
+        start = request.form.get("date","").strip()
+        end = request.form.get("end_date","").strip()
+        if not start:
+            flash("Please select at least one date", "danger")
+            return redirect(url_for("dashboard"))
     
     # Handle file upload first so we can use the same attachment for all dates
     file = request.files.get("attachment")
@@ -119,40 +132,62 @@ def submit_leave():
             return redirect(url_for("dashboard"))
     
     try:
-        # Convert dates to Python date objects
-        start_date = datetime.strptime(start, "%Y-%m-%d").date()
-        if end:
-            end_date = datetime.strptime(end, "%Y-%m-%d").date()
-            if end_date < start_date:
-                flash("End date cannot be before start date", "danger")
-                return redirect(url_for("dashboard"))
+        # Generate 8-digit code if not provided - this allows tracking related leave requests
+        # The same code will be used for all dates in advanced mode to show they're related
+        if not notes.startswith('[') or ']' not in notes[:12]:
+            code = ''.join([str(random.randint(0, 9)) for _ in range(8)])
+            notes = f"[{code}] {notes}"
         else:
-            end_date = start_date  # Single day leave
-            
-        # Generate list of dates between start and end
+            code = notes[1:9]  # Extract existing code
+
         leave_dates = []
-        current_date = start_date
-        while current_date <= end_date:
-            leave_dates.append(current_date.strftime("%Y-%m-%d"))
-            current_date = datetime.fromordinal(current_date.toordinal() + 1).date()
+        if dates_list:  # Advanced mode
+            # Dates are already in YYYY-MM-DD format and validated by the calendar
+            leave_dates = start_dates
+            date_range = f"selected dates ({len(leave_dates)} days)"
             
-        # Submit a separate leave request for each date
+            if not notes.startswith(f"[{code}]"):
+                notes = f"[{code}] {notes}"
+        else:  # Simple mode
+            # Convert dates to Python date objects
+            start_date = datetime.strptime(start, "%Y-%m-%d").date()
+            if end:
+                end_date = datetime.strptime(end, "%Y-%m-%d").date()
+                if end_date < start_date:
+                    flash("End date cannot be before start date", "danger")
+                    return redirect(url_for("dashboard"))
+            else:
+                end_date = start_date  # Single day leave
+                
+            # Generate list of dates between start and end
+            current_date = start_date
+            while current_date <= end_date:
+                leave_dates.append(current_date.strftime("%Y-%m-%d"))
+                current_date = datetime.fromordinal(current_date.toordinal() + 1).date()
+            date_range = f"{start} to {end}" if end != start else start
+        
+        # Submit leave requests one at a time to avoid transaction conflicts
         leave_ids = []
         for date in leave_dates:
-            lrid = backend.submit_leave(
-                u["id"], lt, date, 1, 
-                notes + f" (Part of {start} to {end} leave)" if end and end != start else notes,
-                None, attachment_bytes, filename
-            )
-            leave_ids.append(lrid)
-            
-        if len(leave_ids) > 1:
-            flash(f"Leave submitted for {len(leave_ids)} days from {start} to {end}", "success")
-        else:
-            flash("Leave submitted", "success")
+            try:
+                lrid = backend.submit_leave(
+                    u["id"], lt, date, 1,
+                    notes + f" (Part of {date_range} leave)" if len(leave_dates) > 1 else notes,
+                    None, attachment_bytes, filename
+                )
+                leave_ids.append(lrid)
+            except Exception as e:
+                flash(f"Error submitting leave for {date}: {str(e)}", "danger")
+                return redirect(url_for("dashboard"))
+        
+        flash(f"Leave submitted for {len(leave_dates)} days ({date_range})", "success")
+        return redirect(url_for("dashboard"))
             
     except ValueError:
         flash("Invalid date format", "danger")
+        return redirect(url_for("dashboard"))
+    except Exception as e:
+        flash(f"Error submitting leave: {str(e)}", "danger")
         return redirect(url_for("dashboard"))
     return redirect(url_for("dashboard"))
 

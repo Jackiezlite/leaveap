@@ -1,0 +1,73 @@
+#simpleCalendar {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+#simpleCalendar .fc-view {
+    min-height: 400px;
+}
+
+/* Style for selected range */
+.selected-range {
+    background-color: #e3f2fd !important;
+    opacity: 0.7 !important;
+}
+
+.selected-start {
+    background-color: #bbdefb !important;
+    opacity: 0.9 !important;
+}
+
+/* Style for hover effect */
+.fc-day:hover {
+    background-color: #f5f5f5;
+    cursor: pointer;
+}
+
+/* Style for today */
+.fc-day-today {
+    background-color: #fff3e0 !important;
+}
+
+/* Style for header */
+.fc-header-toolbar {
+    padding: 1rem;
+    margin-bottom: 0.5rem !important;
+}
+
+/* Style for date cells */
+.fc-daygrid-day {
+    transition: background-color 0.2s ease;
+}
+
+/* Highlight start and end dates */
+.fc-highlight {
+    background-color: #e3f2fd !important;
+    opacity: 0.7;
+}
+
+/* Style the duration display */
+#simpleDurationDisplay {
+    transition: all 0.3s ease;
+}
+
+#simpleDurationDisplay.alert-primary {
+    border-left: 4px solid #0d6efd;
+}
+
+/* Style for date displays */
+#simpleDateDisplay, #simpleEndDateDisplay {
+    padding: 0.5rem;
+    border-radius: 4px;
+    transition: all 0.3s ease;
+}
+
+/* Calendar container styling */
+.calendar-container {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    padding: 1rem;
+    margin-bottom: 1rem;
+}

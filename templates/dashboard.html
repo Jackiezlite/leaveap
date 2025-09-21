@@ -234,13 +234,16 @@
                 </div>
               </div>
             </div>
-            <input type="hidden" name="dates" id="datesList">
+            <input type="hidden" name="dates" id="dates">
           </div>
 
           <!-- Notes -->
           <div class="mb-3">
             <label class="form-label">Notes/Reason</label>
-            <textarea class="form-control" name="notes" rows="2" placeholder="Enter your reason for leave"></textarea>
+            <textarea class="form-control" name="notes" rows="2" placeholder="Enter your reason for leave" required></textarea>
+            <small class="text-muted">
+              Note: An 8-digit code will be automatically added to your notes. Multiple requests in advanced mode will share the same code.
+            </small>
           </div>
 
           <!-- Attachment -->

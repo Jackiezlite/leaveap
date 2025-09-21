@@ -3,6 +3,78 @@ from datetime import date, datetime, timedelta
 from calendar import monthrange
 from typing import Optional, List, Dict, Any, Union
 from pathlib import Path
+import threading
+import time
+from contextlib import contextmanager
+
+# Database connection lock to prevent concurrent access issues
+_db_lock = threading.RLock()
+
+@contextmanager
+def get_db_connection(timeout=30):
+    """
+    Context manager for database connections with proper locking and timeout handling.
+    This prevents database locked errors by ensuring proper connection management.
+    """
+    conn = None
+    acquired = False
+    try:
+        # Acquire lock with timeout
+        acquired = _db_lock.acquire(timeout=timeout)
+        if not acquired:
+            raise sqlite3.OperationalError("Could not acquire database lock within timeout")
+        
+        # Create connection with proper settings
+        conn = sqlite3.connect(
+            DB_PATH, 
+            timeout=timeout,
+            isolation_level=None,  # Autocommit mode
+            check_same_thread=False
+        )
+        
+        # Configure connection for better concurrency
+        conn.execute("PRAGMA busy_timeout = 30000")  # 30 second timeout
+        conn.execute("PRAGMA journal_mode = WAL")     # Write-Ahead Logging for better concurrency
+        conn.execute("PRAGMA synchronous = NORMAL")   # Balance between safety and speed
+        conn.execute("PRAGMA temp_store = MEMORY")    # Store temp tables in memory
+        conn.execute("PRAGMA foreign_keys = ON")     # Enable foreign key constraints
+        
+        yield conn
+        
+    except sqlite3.OperationalError as e:
+        if conn:
+            conn.rollback()
+        raise e
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        raise e
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except:
+                pass
+        if acquired:
+            _db_lock.release()
+
+def retry_on_locked(max_retries=3, delay=0.1):
+    """
+    Decorator to retry database operations on lock errors
+    """
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            for attempt in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except sqlite3.OperationalError as e:
+                    if "database is locked" in str(e).lower() and attempt < max_retries - 1:
+                        time.sleep(delay * (2 ** attempt))  # Exponential backoff
+                        continue
+                    raise e
+            return None
+        return wrapper
+    return decorator
 
 # Constants
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -15,11 +87,12 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # Core Functions
+@retry_on_locked()
 def get_leave_update_prompt(user_id):
     """Get a summary of leave updates if user hasn't seen the latest update."""
     apply_annual_leave_updates()
 
-    with sqlite3.connect(DB_PATH) as conn:
+    with get_db_connection() as conn:
         conn.row_factory = sqlite3.Row
         c = conn.cursor()
 
@@ -56,9 +129,10 @@ def get_leave_update_prompt(user_id):
             return "\n".join(summary)
     return None
 
+@retry_on_locked()
 def migrate_db():
     """Perform any necessary database migrations"""
-    with sqlite3.connect(DB_PATH) as conn:
+    with get_db_connection() as conn:
         c = conn.cursor()
         
         # Check if attachment_name column exists
@@ -85,10 +159,10 @@ def migrate_db():
             except sqlite3.OperationalError:
                 pass
 
+@retry_on_locked()
 def init_db():
     """Initialize database with all required tables"""
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.execute("PRAGMA foreign_keys = ON;")
+    with get_db_connection() as conn:
         c = conn.cursor()
         c.execute("""CREATE TABLE IF NOT EXISTS Users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -254,45 +328,47 @@ def get_user_leaves(user_id: int):
 
 def submit_leave(user_id: int, leave_type: str, start_date: str, num_days: float, notes: str=None, replacement_leave: str=None, attachment_bytes: bytes=None, attachment_filename: str=None) -> int:
     """Submit a leave request. For multiple dates, start_date should contain dates separated by semicolons."""
-    # Handle multiple dates
-    dates = [d.strip() for d in start_date.split(';') if d.strip()]
-    if len(dates) > 1:
-        # For multiple dates, create separate entries
-        leave_ids = []
-        with sqlite3.connect(DB_PATH) as conn:
-            c = conn.cursor()
-            for date in dates:
+    with sqlite3.connect(DB_PATH, timeout=60) as conn:
+        c = conn.cursor()
+        try:
+            dates = [d.strip() for d in start_date.split(';') if d.strip()]
+            if len(dates) > 1:
+                # For multiple dates, create separate entries
+                leave_ids = []
+                for date in dates:
+                    c.execute(""" 
+                        INSERT INTO LeaveRequests 
+                        (user_id, leave_type, start_date, num_days, notes, replacement_leave, attachment_blob, attachment_name) 
+                        VALUES (?,?,?,?,?,?,?,?)
+                    """, (user_id, leave_type, date, 1, notes, replacement_leave, attachment_bytes, attachment_filename))
+                    leave_id = c.lastrowid
+                    leave_ids.append(leave_id)
+                    audit("Submit Leave", 
+                          performed_by=str(user_id), 
+                          target_user=user_id, 
+                          target_request_id=leave_id, 
+                          change_summary=f"{leave_type} {date} 1d")
+                conn.commit()
+                return leave_ids[0]  # Return first leave ID
+            else:
+                # Single date handling
                 c.execute(""" 
                     INSERT INTO LeaveRequests 
                     (user_id, leave_type, start_date, num_days, notes, replacement_leave, attachment_blob, attachment_name) 
                     VALUES (?,?,?,?,?,?,?,?)
-                """, (user_id, leave_type, date, 1, notes, replacement_leave, attachment_bytes, attachment_filename))
-                leave_id = c.lastrowid
-                leave_ids.append(leave_id)
+                """, (user_id, leave_type, start_date, num_days, notes, replacement_leave, attachment_bytes, attachment_filename))
+                conn.commit()
+                lrid = c.lastrowid
                 audit("Submit Leave", 
                       performed_by=str(user_id), 
                       target_user=user_id, 
-                      target_request_id=leave_id, 
-                      change_summary=f"{leave_type} {date} 1d")
-            conn.commit()
-        return leave_ids[0]  # Return first leave ID
-    else:
-        # Single date handling (original logic)
-        with sqlite3.connect(DB_PATH) as conn:
-            c = conn.cursor()
-            c.execute(""" 
-                INSERT INTO LeaveRequests 
-                (user_id, leave_type, start_date, num_days, notes, replacement_leave, attachment_blob, attachment_name) 
-                VALUES (?,?,?,?,?,?,?,?)
-            """, (user_id, leave_type, start_date, num_days, notes, replacement_leave, attachment_bytes, attachment_filename))
-            conn.commit()
-            lrid = c.lastrowid
-            audit("Submit Leave", 
-                  performed_by=str(user_id), 
-                  target_user=user_id, 
-                  target_request_id=lrid, 
-                  change_summary=f"{leave_type} {start_date} {num_days}d")
-            return lrid
+                      target_request_id=lrid, 
+                      change_summary=f"{leave_type} {start_date} {num_days}d")
+                conn.commit()
+                return lrid
+        except Exception as e:
+            conn.rollback()
+            raise Exception(f"Error submitting leave: {str(e)}")
 
 def get_pending_leaves():
     with sqlite3.connect(DB_PATH) as conn:
@@ -315,6 +391,7 @@ def get_audit_logs(limit: int=200):
     with sqlite3.connect(DB_PATH) as conn:
         c = conn.cursor()
         c.execute("SELECT id, action, performed_by, target_user, target_request_id, change_summary, full_diff, timestamp FROM LeaveAudit ORDER BY timestamp DESC LIMIT ?", (limit,))
+        conn.commit()
         return c.fetchall()
 
 
@@ -326,6 +403,7 @@ def apply_annual_leave_updates():
 
         # === Init LeaveUpdateLog if needed ===
         c.execute("SELECT last_updated, march_processed FROM LeaveUpdateLog")
+        conn.commit()
         row = c.fetchone()
         if row:
             last_updated = date.fromisoformat(row[0])  # last_updated is first column
@@ -335,7 +413,7 @@ def apply_annual_leave_updates():
             march_transfer_done = False
             c.execute("INSERT INTO LeaveUpdateLog (last_updated, march_processed) VALUES (?, 0)",
                       (last_updated.isoformat(),))
-
+            conn.commit()
         # === Skip if already updated this month ===
         if last_updated.year == today.year and last_updated.month == today.month:
             print("Leave already updated this month.")
@@ -405,6 +483,7 @@ def apply_annual_leave_updates():
                     full_diff=expired,
                     conn=conn
                 )
+                conn.commit()
 
             # === Snapshot before March CF clears ===
             if crossed_march:
@@ -420,7 +499,7 @@ def apply_annual_leave_updates():
                     full_diff={"cf_leave": cf_old},
                     conn=conn
                 )
-
+                conn.commit()
             # === Insert into LeaveSnapshots if any expired ===
             if expired:
                 cols = ', '.join(['user_id'] + list(expired.keys()))
@@ -430,7 +509,7 @@ def apply_annual_leave_updates():
                     INSERT INTO LeaveSnapshots ({cols})
                     VALUES ({placeholders})
                 """, values)
-
+                conn.commit()
             # === Monthly Top-up ===
             if years_worked > 10:
                 add_total = 1.58334
@@ -450,7 +529,7 @@ def apply_annual_leave_updates():
                 full_diff={"add_days": add_total, "new_TotalLeave": new_total},
                 conn=conn
             )
-
+            conn.commit()
             # === Bonus for OFF-day holiday ===
             for offset in range(days_in_month):
                 day = start_month + timedelta(days=offset)
@@ -467,7 +546,7 @@ def apply_annual_leave_updates():
                             full_diff={"bonus_day": str(day)},
                             conn=conn
                         )
-
+                        conn.commit()
         # === Finalize log ===
         c.execute("UPDATE LeaveUpdateLog SET last_updated = ?, march_processed = ?",
                   (today.isoformat(), 1 if crossed_march else march_transfer_done))
@@ -547,7 +626,7 @@ def add_holiday(date_str: str, name: str):
         conn.commit()
     
     audit("Add Holiday", performed_by="system", change_summary=f"{date_str}->{name}")
-
+    conn.commit()
 def remove_holiday(date_str: str):
     """Remove a holiday from both JSON and database"""
     data = load_holiday_json()
@@ -585,6 +664,7 @@ def get_calendar_events(username: str=None, year: int=None):
             c.execute("SELECT u.username, lr.leave_type, lr.start_date, lr.num_days FROM LeaveRequests lr JOIN Users u ON lr.user_id = u.id WHERE u.username = ? AND lr.status = 'Approved'", (username,))
         else:
             c.execute("SELECT u.username, lr.leave_type, lr.start_date, lr.num_days FROM LeaveRequests lr JOIN Users u ON lr.user_id = u.id WHERE lr.status = 'Approved'")
+        conn.commit()
         rows = c.fetchall()
         for r in rows:
             try:
@@ -592,8 +672,13 @@ def get_calendar_events(username: str=None, year: int=None):
             except:
                 continue
             for i in range(int(max(1, round(float(r["num_days"] or 1))))):
-                d = start_date + timedelta(days=i)
-                events.append({"title": f"{r['username']}: {r['leave_type']}", "start": d.isoformat(), "allDay": True, "className": "approved"})
+                date = start_date + timedelta(days=i)
+                events.append({
+                    "title": f"{r['username']}: {r['leave_type']}",
+                    "start": date.strftime("%Y-%m-%d"),
+                    "allDay": True,
+                    "className": "leave"
+                })
     return events
 
 def get_attachment_path_for_leave(leave_id: int):
@@ -601,6 +686,7 @@ def get_attachment_path_for_leave(leave_id: int):
         conn.row_factory = sqlite3.Row
         c = conn.cursor()
         c.execute("SELECT attachment_image FROM LeaveRequests WHERE id = ?", (leave_id,))
+        conn.commit()
         r = c.fetchone()
         if not r: return None
         return r["attachment_image"]
@@ -609,6 +695,7 @@ def read_attachment_blob(leave_id: int):
     with sqlite3.connect(DB_PATH) as conn:
         c = conn.cursor()
         c.execute("SELECT attachment_image FROM LeaveRequests WHERE id = ?", (leave_id,))
+        conn.commit()
         r = c.fetchone()
         if not r or r[0] is None: return None
         return r[0]
